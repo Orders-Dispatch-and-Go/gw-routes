@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub mod config;
-pub mod schema;
 pub mod db;
+pub mod schema;
