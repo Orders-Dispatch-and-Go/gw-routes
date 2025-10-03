@@ -1,0 +1,12 @@
+[package]
+name = "gw-routes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+axum = "0.8.6"
+reqwest = { version = "0.12.23", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio"] }
+tokio = { version = "1.47.1", features = ["full"] }
