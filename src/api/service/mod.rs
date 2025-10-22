@@ -22,8 +22,8 @@ impl axum::extract::FromRef<State> for map_service::client::Client {
     }
 }
 
-impl axum::extract::FromRef<State> for db::Database {
+impl axum::extract::FromRef<State> for sqlx::PgPool {
     fn from_ref(input: &State) -> Self {
-        input.db.clone()
+        input.db.pool.clone()
     }
 }
