@@ -2,19 +2,30 @@ pub const SCHEMA: &'static str = r#"
 
 CREATE TABLE IF NOT EXISTS route (
     id SERIAL PRIMARY KEY,
-    creation_time TIMESTAMP NOT NULL,
-    start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP NOT NULL,
-    graph BIGINT[] NOT NULL,
-    waypoints REAL[][] NOT NULL,
-    is_cancelled BOOLEAN NOT NULL DEFAULT false,
-    max_weight INTEGER NOT NULL,
-    free_space INTEGER,
-  	description TEXT,
-    vehicle_id INTEGER,
-    driver_id INTEGER,
-    allowed_cargo TEXT,
-    min_price NUMERIC(10, 2)
+    waypoints POINT[] NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS station (
+    id INTEGER PRIMARY KEY,
+    coord POINT NOT NULL,
+    address TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS graph (
+    route_id INTEGER NOT NULL REFERENCES route(id),
+    station_id INTEGER NOT NULL REFERENCES station(id),
+    ord INTEGER,
+    PRIMARY KEY (route_id, station_id)
+);
+
+CREATE TABLE IF NOT EXISTS template (
+    id SERIAL PRIMARY KEY
+);
+
+CREATE TABLE IF NOT EXISTS template (
+    template_id INTEGER NOT NULL REFERENCES template(id),
+    route_id INTEGER NOT NULL REFERENCES route(id),
+    PRIMARY KEY (template_id, route_id)
 );
 
 "#;
