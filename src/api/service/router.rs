@@ -4,7 +4,7 @@ use axum::routing::{get, post};
 
 use super::types::*;
 
-pub fn router(db: crate::db::Database) -> axum::Router<crate::db::Database> {
+pub fn router(state: super::State) -> axum::Router {
     axum::Router::new()
         .route("/api/create_route", post(create_route))
         .route("/api/route", get(get_route))
@@ -12,7 +12,7 @@ pub fn router(db: crate::db::Database) -> axum::Router<crate::db::Database> {
         .route("/api/merge_template", post(merge_template))
         .route("/api/merge_id", post(merge_route))
         .route("/api/remove_stops", post(remove_stations))
-        .with_state(db)
+        .with_state(state)
 }
 
 async fn create_route(r: Json<CreateRouteRequest>) -> Json<CreateRouteResponse> {
