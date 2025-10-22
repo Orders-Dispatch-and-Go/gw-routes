@@ -25,10 +25,13 @@ async fn run() -> anyhow::Result<()> {
     sqlx::query(SCHEMA).execute(&database.pool).await?;
     log::info!("Connected to database ({})", config.pg_url);
 
+    let client = gw_routes::api::map_service::client::Client::new(&config.map_service_addr)?;
+    let state = gw_routes::api::service::State::new(database, client);
+
     let listen_addr = format!("0.0.0.0:{}", config.listen_port);
     let listener = tokio::net::TcpListener::bind(&listen_addr).await?;
 
-    let router = axum::Router::new().with_state(database);
+    let router = gw_routes::api::service::router::router(state);
 
     log::info!("Serving on {listen_addr}");
     axum::serve(listener, router).await?;
