@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use axum::extract::FromRef;
 use reqwest::Url;
 
 use super::types::*;
