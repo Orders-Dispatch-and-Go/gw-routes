@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::Coord;
+use crate::api::types::Coord;
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateRouteRequest {
