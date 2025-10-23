@@ -102,6 +102,69 @@ async fn merge_route(Json(r): Json<MergeRouteRequest>) -> Json<MergeResponse> {
     todo!()
 }
 
-async fn remove_stations(Json(r): Json<RemoveStationsRequest>) -> Json<RemoveStationsResponse> {
-    todo!()
+async fn remove_stations(
+    State(db): State<sqlx::PgPool>,
+    Json(r): Json<RemoveStationsRequest>
+) -> Result<Json<RemoveStationsResponse>, StatusCode> {
+    let waypoints: Vec<PgPoint> = sqlx::query_scalar(
+        r#"SELECT waypoints
+        FROM route
+        WHERE id = $1;"#,
+    )
+    .bind(&r.route_id)
+    .fetch_one(&db)
+    .await
+    .map_err(|e| {
+        log::error!("db error while getting route waypoints: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let new_route_id: i64 = sqlx::query_scalar(
+        r#"INSERT INTO route (waypoints)
+        VALUES ($1)
+        RETURNING id;"#,
+    )
+    .bind(&waypoints)
+    .fetch_one(&db)
+    .await
+    .map_err(|e| {
+        log::error!("db error while creating new route: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+ 
+    let graph: Vec<(i64, i32)> = sqlx::query_as(
+        r#"SELECT station_id, ord
+        FROM graph
+        WHERE route_id = $1 AND station_id != ALL($2)
+        ORDER BY ord;"#,
+    )
+    .bind(&r.route_id)
+    .bind(&r.graph)
+    .fetch_all(&db)
+    .await
+    .map_err(|e| {
+        log::error!("db error while getting graph entries: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    for (station_id, ord) in &graph {
+        sqlx::query(
+            r#"INSERT INTO graph (route_id, station_id, ord)
+            VALUES ($1, $2, $3);"#,
+        )
+        .bind(&new_route_id)
+        .bind(station_id)
+        .bind(ord)
+        .execute(&db)
+        .await
+        .map_err(|e| {
+            log::error!("db error while inserting graph entry: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    }
+
+    Ok(Json(RemoveStationsResponse {
+        route_id: new_route_id,
+        graph: graph.into_iter().map(|(id, _)| id).collect(),
+    }))
 }
