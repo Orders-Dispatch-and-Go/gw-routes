@@ -1,3 +1,4 @@
 [submodule "comparator"]
 	path = comparator
 	url = https://github.com/Orders-Dispatch-and-Go/comparator.git
+	branch = main
