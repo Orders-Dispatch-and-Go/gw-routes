@@ -195,6 +195,7 @@ async fn merge_route(Json(r): Json<MergeRouteRequest>) -> Json<MergeResponse> {
 }
 
 async fn remove_stations(
+    State(client): State<client::Client>,
     State(db): State<sqlx::PgPool>,
     Json(r): Json<RemoveStationsRequest>
 ) -> Result<Json<RemoveStationsResponse>, StatusCode> {
@@ -211,12 +212,44 @@ async fn remove_stations(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
+    let station_coords: Vec<PgPoint> = sqlx::query_scalar(
+        r#"SELECT s.coord
+        FROM graph g
+        JOIN station s ON s.id = g.station_id
+        WHERE g.route_id = $1 AND g.station_id != ALL($2)
+        ORDER BY g.ord;"#,
+    )
+    .bind(&r.route_id)
+    .bind(&r.graph)
+    .fetch_all(&db)
+    .await
+    .map_err(|e| {
+        log::error!("db error while getting station coordinates: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let new_route = client
+        .create_route(map_service::types::CreateRouteRequest {
+            stops: station_coords
+                .into_iter()
+                .map(|point| [point.x, point.y])
+                .collect(),
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let new_route_id: i64 = sqlx::query_scalar(
         r#"INSERT INTO route (waypoints)
         VALUES ($1)
         RETURNING id;"#,
     )
-    .bind(&waypoints)
+    .bind(
+        new_route
+            .way
+            .into_iter()
+            .map(|[x, y]| PgPoint { x, y })
+            .collect::<Vec<_>>(),
+    )
     .fetch_one(&db)
     .await
     .map_err(|e| {
