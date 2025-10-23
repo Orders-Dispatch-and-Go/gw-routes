@@ -10,11 +10,17 @@ Environment:
 
 ## Build
 
-**Note**: Way Comparator Library is not being linked yet.
+### Clone the repo
+
+```bash
+git clone --recurse-submodules https://github.com/Orders-Dispatch-and-Go/gw-routes.git && cd gw-routes
+```
 
 ### Build using Docker
 
-`docker build .`
+```bash
+docker build .
+```
 
 ## API
 
