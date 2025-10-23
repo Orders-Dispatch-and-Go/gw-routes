@@ -89,9 +89,101 @@ async fn get_route(
 }
 
 async fn create_merge_options(
+    State(client): State<client::Client>,
+    State(db): State<sqlx::PgPool>,
     Json(r): Json<CreateMergeOptionsRequest>,
-) -> Json<CreateMergeOptionsResponse> {
-    todo!()
+) -> Result<Json<CreateMergeOptionsResponse>, StatusCode> {
+    let request_waypoints: Vec<PgPoint> = sqlx::query_scalar(
+        r#"SELECT waypoints
+        FROM route
+        WHERE id = $1;"#,
+    )
+    .bind(&r.request_route_id)
+    .fetch_one(&db)
+    .await
+    .map_err(|e| {
+        log::error!("db error while getting request route waypoints: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let mut merger_templates = Vec::new();
+
+    for trip_route_id in r.trips_routes {
+        let trip_waypoints: Vec<PgPoint> = sqlx::query_scalar(
+            r#"SELECT waypoints
+            FROM route
+            WHERE id = $1;"#,
+        )
+        .bind(&trip_route_id)
+        .fetch_one(&db)
+        .await
+        .map_err(|e| {
+            log::error!("db error while getting trip route waypoints: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let merged_stops: Vec<[f64; 2]> = request_waypoints
+            .iter()
+            .chain(trip_waypoints.iter())
+            .map(|point| [point.x, point.y])
+            .collect();
+
+        let new_route = client
+            .create_route(map_service::types::CreateRouteRequest {
+                stops: merged_stops,
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let new_route_id: i64 = sqlx::query_scalar(
+            r#"INSERT INTO route (waypoints)
+            VALUES ($1)
+            RETURNING id;"#,
+        )
+        .bind(
+            new_route
+                .way
+                .into_iter()
+                .map(|[x, y]| PgPoint { x, y })
+                .collect::<Vec<_>>(),
+        )
+        .fetch_one(&db)
+        .await
+        .map_err(|e| {
+            log::error!("db error while creating new route: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        let template_id: i64 = sqlx::query_scalar(
+            r#"INSERT INTO template DEFAULT VALUES RETURNING id;"#,
+        )
+        .fetch_one(&db)
+        .await
+        .map_err(|e| {
+            log::error!("db error while creating template: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        sqlx::query(
+            r#"INSERT INTO template (template_id, route_id)
+            VALUES ($1, $2), ($1, $3);"#,
+        )
+        .bind(&template_id)
+        .bind(&new_route_id)
+        .bind(&trip_route_id)
+        .execute(&db)
+        .await
+        .map_err(|e| {
+            log::error!("db error while storing template associations: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        merger_templates.push([new_route_id, trip_route_id]);
+    }
+
+    Ok(Json(CreateMergeOptionsResponse {
+        merger_templates,
+    }))
 }
 
 async fn merge_template(Json(r): Json<MergeTemplateRequest>) -> Json<MergeResponse> {
