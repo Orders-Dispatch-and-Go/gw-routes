@@ -1,3 +1,4 @@
+use gw_routes::api::map_service::types::CreateRouteRequest;
 use gw_routes::config::{Config, REQUIRED_VARIABLES};
 use gw_routes::db::Database;
 use gw_routes::schema::SCHEMA;
@@ -22,7 +23,7 @@ async fn run() -> anyhow::Result<()> {
     config.log();
 
     let database = Database::connect(&config.pg_url).await?;
-    sqlx::query(SCHEMA).execute(&database.pool).await?;
+    sqlx::raw_sql(SCHEMA).execute(&database.pool).await?;
     log::info!("Connected to database ({})", config.pg_url);
 
     let client = gw_routes::api::map_service::client::Client::new(&config.map_service_addr)?;
