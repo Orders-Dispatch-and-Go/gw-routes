@@ -1,5 +1,8 @@
 use anyhow::anyhow;
+use axum::http::response;
 use reqwest::Url;
+
+use crate::api::types::Coord;
 
 use super::types::*;
 
@@ -28,7 +31,19 @@ impl Client {
             .join("/api/create_route")
             .map_err(|e| anyhow!("error joining url: {e}"))?;
 
-        let response = self.inner.post(url).json(&r).send().await?.json().await?;
+        let response = self
+            .inner
+            .post(url)
+            .json(&r)
+            .send()
+            .await?
+            .json()
+            .await
+            .map(|CreateRouteResponse { way, graph }| CreateRouteResponse {
+                way: way.into_iter().map(|[x, y]| [y, x]).collect(),
+                graph,
+            })?;
+
         Ok(response)
     }
 
@@ -38,7 +53,23 @@ impl Client {
             .join("/api/find_stations")
             .map_err(|e| anyhow!("error joining url: {e}"))?;
 
-        let response = self.inner.get(url).query(&r).send().await?.json().await?;
+        let response = self
+            .inner
+            .get(url)
+            .query(&r)
+            .send()
+            .await?
+            .json()
+            .await
+            .map(
+                |FindStationResponse { address, coord }| FindStationResponse {
+                    address,
+                    coord: Coord {
+                        lat: coord.lon,
+                        lon: coord.lat,
+                    },
+                },
+            )?;
         Ok(response)
     }
 }
