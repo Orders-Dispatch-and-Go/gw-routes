@@ -8,7 +8,7 @@ async fn main() {
     env_logger::init();
 
     if let Err(e) = run().await {
-        log::error!("FATAL: {e}");
+        log::error!("{e}");
     }
 }
 
@@ -23,10 +23,14 @@ async fn run() -> anyhow::Result<()> {
     config.log();
 
     let database = Database::connect(&config.pg_url).await?;
-    sqlx::raw_sql(SCHEMA).execute(&database.pool).await?;
     log::info!("Connected to database ({})", config.pg_url);
 
+    sqlx::raw_sql(SCHEMA).execute(&database.pool).await?;
+    log::info!("Successfully ran init query");
+
     let client = gw_routes::api::map_service::client::Client::new(&config.map_service_addr)?;
+    log::info!("Connected to map service ({})", config.map_service_addr);
+
     let state = gw_routes::api::service::State::new(database, client);
 
     let listen_addr = format!("0.0.0.0:{}", config.listen_port);
@@ -34,7 +38,7 @@ async fn run() -> anyhow::Result<()> {
 
     let router = gw_routes::api::service::router::router(state);
 
-    log::info!("Serving on {listen_addr}");
+    log::info!("Listening on {listen_addr}");
     axum::serve(listener, router).await?;
 
     Ok(())

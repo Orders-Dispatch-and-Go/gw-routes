@@ -1,4 +1,4 @@
-use crate::api::types::Coord;
+use crate::types::Coord;
 
 #[link(name = "comparatorlib", kind = "static")]
 unsafe extern "C" {

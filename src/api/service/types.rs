@@ -1,65 +1,100 @@
 use serde::{Deserialize, Serialize};
 
-use crate::api::types::Station;
+#[derive(Serialize, Deserialize)]
+pub struct Coords {
+    pub lat: f64,
+    pub lon: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Station {
+    pub address: String,
+    pub coords: Coords,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateRouteRequest {
-    pub stops: Vec<[f64; 2]>,
+    #[serde(rename = "fromStation")]
+    pub from_station: Station,
+
+    #[serde(rename = "toStation")]
+    pub to_station: Station,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateRouteResponse {
-    pub route_id: i64,
-    pub graph: Vec<i64>,
+    pub id: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GetRouteRequest {
-    pub route_id: i64,
+pub struct GetWaypointsRequest {
+    pub id: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct GetRouteResponse {
-    pub way: Vec<[f64; 2]>,
-    pub stations: Vec<Station>,
+pub struct Waypoint {
+    pub station: Station,
+    pub distance: f64,
+
+    #[serde(rename = "tripTime")]
+    pub trip_time: f64,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CreateMergeOptionsRequest {
-    pub request_route_id: i64,
-    pub trips_routes: Vec<i64>,
+pub struct GetWaypointsResponse {
+    pub stations: Vec<Waypoint>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CreateMergeOptionsResponse {
-    pub merger_templates: Vec<[i64; 2]>,
+pub struct GetPointsRequest {
+    pub id: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MergeTemplateRequest {
-    pub template_id: i64,
+pub struct GetPointsResponse {
+    pub points: Vec<[f64; 2]>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MergeRouteRequest {
-    pub trip_route_id: i64,
-    pub request_routes: Vec<i64>,
+pub struct GetPotentialRoutesRequest {
+    #[serde(rename = "cargoRequestRouteId")]
+    pub cargo_request: uuid::Uuid,
+
+    #[serde(rename = "tripRouteIds")]
+    pub trips: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct MergeResponse {
-    pub route_id: i64,
-    pub graph: Vec<i64>,
+pub struct GetPotentialRoutesResponse {
+    #[serde(rename = "tripIds")]
+    pub trips: Vec<uuid::Uuid>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MergeRoutesRequest {
+  #[serde(rename = "cargoRequestRouteId")]
+  pub cargo_request: uuid::Uuid,
+
+  #[serde(rename = "tripRouteId")]
+  pub trip: uuid::Uuid,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MergeRoutesResponse {
+    #[serde(rename = "routeId")]
+    route: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct RemoveStationsRequest {
-    pub route_id: i64,
-    pub graph: Vec<i64>,
+    #[serde(rename = "deleteStationIds")]
+    pub delete_stations: Vec<uuid::Uuid>,
+
+    #[serde(rename = "tripId")]
+    pub trip: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct RemoveStationsResponse {
-    pub route_id: i64,
-    pub graph: Vec<i64>,
+pub struct ErrorResponse {
+    pub message: String,
 }
