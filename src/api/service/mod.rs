@@ -6,7 +6,7 @@ use crate::db;
 
 #[derive(Clone)]
 pub struct State {
-    pub db: crate::db::Database,
+    pub db: db::Database,
     pub client: map_service::client::Client,
 }
 
