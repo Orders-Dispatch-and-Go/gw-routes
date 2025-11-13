@@ -1,8 +1,6 @@
-use axum::{routing::{post, get}, Json, extract::Path, http::StatusCode};
+use axum::routing::{get, post};
 
-use super::types::*;
-
-type Result<T> = std::result::Result<T, (StatusCode, Json<ErrorResponse>)>;
+use super::endpoints::*;
 
 pub fn router(state: super::State) -> axum::Router {
     axum::Router::new()
@@ -16,58 +14,4 @@ pub fn router(state: super::State) -> axum::Router {
         .route("/routes/trips/merge", post(merge_routes))
         .route("/routes/trips/cargo_request/remove", post(remove_stations))
         .with_state(state)
-}
-
-async fn create_cargo_request(
-    Json(r): Json<CreateRouteRequest>
-) -> Result<Json<CreateRouteResponse>> {
-    todo!()
-}
-
-async fn create_trip(
-    Json(r): Json<CreateRouteRequest>
-) -> Result<Json<CreateRouteResponse>> {
-    todo!()
-}
-
-async fn get_cargo_request(
-    Path(r): Path<GetWaypointsRequest>
-) -> Result<Json<GetWaypointsResponse>> {
-    todo!()
-}
-
-async fn get_trip(
-    Path(r): Path<GetWaypointsRequest>
-) -> Result<Json<GetWaypointsResponse>> {
-    todo!()
-}
-
-async fn get_cargo_request_points(
-    Path(r): Path<GetPointsRequest>
-) -> Result<Json<GetPointsResponse>> {
-    todo!()
-}
-
-async fn get_trip_points(
-    Path(r): Path<GetPointsRequest>
-) -> Result<Json<GetPointsResponse>> {
-    todo!()
-}
-
-async fn get_potential_routes(
-    Json(r): Json<GetPotentialRoutesRequest>
-) -> Result<Json<GetPotentialRoutesResponse>> {
-    todo!()
-}
-
-async fn merge_routes(
-    Json(r): Json<MergeRoutesRequest>
-) -> Result<Json<MergeRoutesResponse>> {
-    todo!()
-}
-
-async fn remove_stations(
-    Json(r): Json<RemoveStationsRequest>
-) -> Result<()> {
-    todo!()
 }

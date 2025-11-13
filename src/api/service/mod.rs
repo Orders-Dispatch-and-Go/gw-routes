@@ -1,5 +1,6 @@
 pub mod router;
 pub mod types;
+pub mod endpoints;
 
 use crate::api::map_service;
 use crate::db;
