@@ -240,10 +240,37 @@ pub async fn get_cargo_request_points(
     Ok(Json(GetPointsResponse { points }))
 }
 
+async fn fetch_trip_points(
+    pool: &sqlx::PgPool,
+    trip_id: &Uuid
+) -> Result<Vec<[f64; 2]>> {
+    let pg_points: Vec<PgPoint> = sqlx::query_scalar::<_, Vec<PgPoint>>("
+        SELECT array_agg(ARRAY[point[0], point[1]] ORDER BY p1.index, idx) AS flat_points
+        FROM path p1
+        JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
+        LEFT JOIN segment seg ON seg.s1 = p1.station_id AND seg.s2 = p2.station_id
+        CROSS JOIN LATERAL unnest(COALESCE(seg.points, '{}')) WITH ORDINALITY AS points(point, idx)
+        WHERE p1.trip_id = $1;
+    ")
+        .bind(trip_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    let points: Vec<[f64; 2]> = pg_points
+        .into_iter()
+        .map(|p| [p.x, p.y])
+        .collect();
+
+    Ok(points)
+}
+
 pub async fn get_trip_points(
+    State(pool): State<sqlx::PgPool>,
     Path(r): Path<GetPointsRequest>
 ) -> Result<Json<GetPointsResponse>> {
-    todo!()
+    let points = fetch_trip_points(&pool, &r.id).await?;
+    Ok(Json(GetPointsResponse { points }))
 }
 
 pub async fn get_potential_routes(
