@@ -34,10 +34,10 @@ pub struct GetWaypointsRequest {
 #[derive(Serialize, Deserialize)]
 pub struct Waypoint {
     pub station: Station,
-    pub distance: f64,
+    pub distance: u64,
 
     #[serde(rename = "tripTime")]
-    pub trip_time: f64,
+    pub trip_time: u64,
 }
 
 #[derive(Serialize, Deserialize)]
