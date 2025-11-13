@@ -206,10 +206,38 @@ pub async fn get_trip(
     }))
 }
 
+async fn fetch_request_points(
+    pool: &sqlx::PgPool,
+    request_id: &Uuid
+) -> Result<Vec<[f64; 2]>> {
+    let pg_points: Vec<PgPoint> = sqlx::query_scalar::<_, Vec<PgPoint>>("
+        SELECT     
+            seg.points
+        FROM request r        
+        INNER JOIN station s_source ON r.source = s_source.id        
+        INNER JOIN station s_dest ON r.destination = s_dest.id        
+        LEFT JOIN segment seg ON seg.s1 = r.source AND seg.s2 = r.destination        
+        WHERE r.id = $1;
+    ")
+        .bind(request_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    let points: Vec<[f64; 2]> = pg_points
+        .into_iter()
+        .map(|p| [p.x, p.y])
+        .collect();
+
+    Ok(points)
+}
+
 pub async fn get_cargo_request_points(
+    State(pool): State<sqlx::PgPool>,
     Path(r): Path<GetPointsRequest>
 ) -> Result<Json<GetPointsResponse>> {
-    todo!()
+    let points = fetch_request_points(&pool, &r.id).await?;
+    Ok(Json(GetPointsResponse { points }))
 }
 
 pub async fn get_trip_points(
