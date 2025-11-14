@@ -210,7 +210,7 @@ async fn fetch_request_points(
     pool: &sqlx::PgPool,
     request_id: &Uuid
 ) -> Result<Vec<[f64; 2]>> {
-    let pg_points: Vec<PgPoint> = sqlx::query_scalar::<_, Vec<PgPoint>>("
+    let pg_points: Vec<PgPoint> = sqlx::query_scalar("
         SELECT     
             seg.points
         FROM request r        
@@ -224,7 +224,7 @@ async fn fetch_request_points(
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
-    let points: Vec<[f64; 2]> = pg_points
+    let points = pg_points
         .into_iter()
         .map(|p| [p.x, p.y])
         .collect();
@@ -244,7 +244,7 @@ async fn fetch_trip_points(
     pool: &sqlx::PgPool,
     trip_id: &Uuid
 ) -> Result<Vec<[f64; 2]>> {
-    let pg_points: Vec<PgPoint> = sqlx::query_scalar::<_, Vec<PgPoint>>("
+    let pg_points: Vec<PgPoint> = sqlx::query_scalar("
         SELECT array_agg(ARRAY[point[0], point[1]] ORDER BY p1.index, idx) AS flat_points
         FROM path p1
         JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
@@ -257,7 +257,7 @@ async fn fetch_trip_points(
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
-    let points: Vec<[f64; 2]> = pg_points
+    let points = pg_points
         .into_iter()
         .map(|p| [p.x, p.y])
         .collect();
@@ -274,9 +274,40 @@ pub async fn get_trip_points(
 }
 
 pub async fn get_potential_routes(
+    State(pool): State<sqlx::PgPool>,
     Json(r): Json<GetPotentialRoutesRequest>
 ) -> Result<Json<GetPotentialRoutesResponse>> {
-    todo!()
+    let points_to_coords = |points: &[[f64; 2]]| {
+        points
+            .iter()
+            .map(|p| crate::types::Coord { lat: p[0], lon: p[1] })
+            .collect::<Vec<_>>()
+    };
+
+    let request_points = points_to_coords(&fetch_trip_points(&pool, &r.cargo_request).await?);
+
+    let mut trips = Vec::new();
+
+    for trip in &r.trips {
+        let points = fetch_trip_points(&pool, trip).await?;
+        trips.push((trip.clone(), points_to_coords(&points)));
+    }
+
+    trips.sort_unstable_by(|(_, points1), (_, points2)| {
+        let d1 = crate::ffi::distance(&points1, &request_points);
+        let d2 = crate::ffi::distance(&points2, &request_points);
+
+        d1.total_cmp(&d2)
+    });
+
+    /* TODO: remove trips with distance higher than MAX_DISTANCE */
+
+    let ids = trips
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+
+    Ok(Json(GetPotentialRoutesResponse { trips: ids }))
 }
 
 pub async fn merge_routes(
