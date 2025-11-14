@@ -313,16 +313,16 @@ pub async fn get_potential_routes(
 async fn get_request_stations(
     pool: &sqlx::PgPool,
     id: &Uuid
-) -> Result<Vec<(i32, PgPoint)>> {
-    let (src_id, src_coords, dst_id, dst_coords): (i32, PgPoint, i32, PgPoint) = sqlx::query_as("
+) -> Result<(i32, PgPoint, i32, PgPoint)> {
+    let stations = sqlx::query_as("
         SELECT 
-            s_source.id AS source_id,
-            s_source.coords AS source_coords,
-            s_dest.id as destination_id,
-            s_dest.coords AS destination_coords
+            s_src.id AS src_station_id,
+            s_src.coords AS src_coords,
+            s_dst.id AS dst_station_id,
+            s_dst.coords AS dst_coords
         FROM request r
-        INNER JOIN station s_source ON r.source = s_source.id
-        INNER JOIN station s_dest ON r.destination = s_dest.id
+        INNER JOIN station s_src ON r.source = s_src.id
+        INNER JOIN station s_dst ON r.destination = s_dst.id
         WHERE r.id = $1;
     ")
         .bind(id)
@@ -330,49 +330,53 @@ async fn get_request_stations(
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
-    Ok(vec![(src_id, src_coords), (dst_id, dst_coords)])
+    Ok(stations)
 }
 
 async fn get_trip_stations(
     pool: &sqlx::PgPool,
     id: &Uuid
-) -> Result<Vec<(i32, PgPoint)>> {
-    let segments: Vec<(i32, PgPoint, i32, PgPoint)> = sqlx::query_as("
+) -> Result<Vec<(i32, PgPoint, i32, PgPoint)>> {
+    let pairs: Vec<(i32, PgPoint, i32, PgPoint)> = sqlx::query_as("
         SELECT 
-            s_source.id as source_id,
-            s_source.coords AS source_coords,
-            s_dest.coords AS destination_coords,
-            s_dest.id as destination_id
-        FROM path p1
-        INNER JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
-        INNER JOIN station s_source ON p1.station_id = s_source.id
-        INNER JOIN station s_dest ON p2.station_id = s_dest.id
-        WHERE p1.trip_id = $1
-        ORDER BY p1.index;  
+            s_src.id AS src_station_id,
+            s_src.coords AS src_coords,
+            s_dst.id AS dst_station_id,
+            s_dst.coords AS dst_coords
+        FROM trip t
+        INNER JOIN station s_src ON t.source = s_src.id
+        INNER JOIN station s_dst ON t.destination = s_dst.id
+        WHERE t.id = $1
+
+        UNION ALL
+
+        SELECT 
+            s_src.id AS src_station_id,
+            s_src.coords AS src_coords,
+            s_dst.id AS dst_station_id,
+            s_dst.coords AS dst_coords
+        FROM request r
+        INNER JOIN station s_src ON r.source = s_src.id
+        INNER JOIN station s_dst ON r.destination = s_dst.id
+        WHERE r.trip_id = $1;
     ")
         .bind(id)
         .fetch_all(pool)
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
-    let mut stations = Vec::new();
-
-    stations.push((segments[0].0, segments[0].1.clone()));
-
-    for segment in segments {
-        stations.push((segment.2, segment.3));
-    }
-
-    Ok(stations)
+    Ok(pairs)
 }
 
 pub async fn merge_routes(
+    State(pool): State<sqlx::PgPool>,
     Json(r): Json<MergeRoutesRequest>
 ) -> Result<Json<MergeRoutesResponse>> {
     todo!()
 }
 
 pub async fn remove_stations(
+    State(pool): State<sqlx::PgPool>,
     Json(r): Json<RemoveStationsRequest>
 ) -> Result<()> {
     todo!()
