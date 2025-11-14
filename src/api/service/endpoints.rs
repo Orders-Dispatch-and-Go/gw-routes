@@ -310,6 +310,62 @@ pub async fn get_potential_routes(
     Ok(Json(GetPotentialRoutesResponse { trips: ids }))
 }
 
+async fn get_request_stations(
+    pool: &sqlx::PgPool,
+    id: &Uuid
+) -> Result<Vec<(i32, PgPoint)>> {
+    let (src_id, src_coords, dst_id, dst_coords): (i32, PgPoint, i32, PgPoint) = sqlx::query_as("
+        SELECT 
+            s_source.id AS source_id,
+            s_source.coords AS source_coords,
+            s_dest.id as destination_id,
+            s_dest.coords AS destination_coords
+        FROM request r
+        INNER JOIN station s_source ON r.source = s_source.id
+        INNER JOIN station s_dest ON r.destination = s_dest.id
+        WHERE r.id = $1;
+    ")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    Ok(vec![(src_id, src_coords), (dst_id, dst_coords)])
+}
+
+async fn get_trip_stations(
+    pool: &sqlx::PgPool,
+    id: &Uuid
+) -> Result<Vec<(i32, PgPoint)>> {
+    let segments: Vec<(i32, PgPoint, i32, PgPoint)> = sqlx::query_as("
+        SELECT 
+            s_source.id as source_id,
+            s_source.coords AS source_coords,
+            s_dest.coords AS destination_coords,
+            s_dest.id as destination_id
+        FROM path p1
+        INNER JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
+        INNER JOIN station s_source ON p1.station_id = s_source.id
+        INNER JOIN station s_dest ON p2.station_id = s_dest.id
+        WHERE p1.trip_id = $1
+        ORDER BY p1.index;  
+    ")
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    let mut stations = Vec::new();
+
+    stations.push((segments[0].0, segments[0].1.clone()));
+
+    for segment in segments {
+        stations.push((segment.2, segment.3));
+    }
+
+    Ok(stations)
+}
+
 pub async fn merge_routes(
     Json(r): Json<MergeRoutesRequest>
 ) -> Result<Json<MergeRoutesResponse>> {
