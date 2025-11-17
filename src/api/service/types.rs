@@ -82,7 +82,7 @@ pub struct MergeRoutesRequest {
 #[derive(Serialize, Deserialize)]
 pub struct MergeRoutesResponse {
     #[serde(rename = "routeId")]
-    route: uuid::Uuid,
+    pub route: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
