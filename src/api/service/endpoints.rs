@@ -536,7 +536,155 @@ pub async fn merge_routes(
 
 pub async fn remove_stations(
     State(pool): State<sqlx::PgPool>,
+    State(client): State<map_service::Client>,
     Json(r): Json<RemoveStationsRequest>
 ) -> Result<()> {
-    todo!()
+    let mut tx = pool.begin().await.map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
+
+    // Get station IDs to delete from the requests
+    let mut stations_to_delete = Vec::new();
+    for req_id in &r.delete_stations {
+        let (src_id, _, dst_id, _): (i32, PgPoint, i32, PgPoint) = sqlx::query_as("
+            SELECT 
+                s_src.id, s_src.coords,
+                s_dst.id, s_dst.coords
+            FROM request req
+            INNER JOIN station s_src ON req.source = s_src.id
+            INNER JOIN station s_dst ON req.destination = s_dst.id
+            WHERE req.id = $1 AND req.trip_id = $2;
+        ")
+            .bind(req_id)
+            .bind(&r.trip)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+        stations_to_delete.push(src_id);
+        stations_to_delete.push(dst_id);
+    }
+
+    if stations_to_delete.is_empty() {
+        return Err(ErrorResponse::new("no stations to delete"));
+    }
+
+    // Get current path
+    let mut path: Vec<(i32, i32)> = sqlx::query_as("
+        SELECT station_id, index
+        FROM path
+        WHERE trip_id = $1
+        ORDER BY index;
+    ")
+        .bind(&r.trip)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    // Remove deleted stations from path
+    path.retain(|(station_id, _)| !stations_to_delete.contains(station_id));
+
+    if path.len() < 2 {
+        return Err(ErrorResponse::new("cannot delete all stations from trip"));
+    }
+
+    // Delete old path entries
+    sqlx::query("DELETE FROM path WHERE trip_id = $1;")
+        .bind(&r.trip)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    // Insert new path with updated indices
+    for (index, (station_id, _)) in path.iter().enumerate() {
+        sqlx::query("
+            INSERT INTO path (trip_id, station_id, index)
+            VALUES ($1, $2, $3);
+        ")
+            .bind(&r.trip)
+            .bind(station_id)
+            .bind(index as i32)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+    }
+
+    // Update trip source and destination
+    sqlx::query("
+        UPDATE trip
+        SET source = $1, destination = $2
+        WHERE id = $3;
+    ")
+        .bind(path[0].0)
+        .bind(path[path.len() - 1].0)
+        .bind(&r.trip)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    // Create new segments for consecutive stations
+    for i in 0..path.len() - 1 {
+        let s1 = path[i].0;
+        let s2 = path[i + 1].0;
+
+        // Check if segment already exists
+        let existing: Option<i32> = sqlx::query_scalar("
+            SELECT 1 FROM segment WHERE s1 = $1 AND s2 = $2;
+        ")
+            .bind(s1)
+            .bind(s2)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+        if existing.is_none() {
+            // Get coordinates for both stations
+            let coords: Vec<PgPoint> = sqlx::query_scalar("
+                SELECT coords FROM station WHERE id = ANY($1) ORDER BY id = $2 DESC;
+            ")
+                .bind(&[s1, s2])
+                .bind(s1)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+            if coords.len() != 2 {
+                return Err(ErrorResponse::new("missing station coordinates"));
+            }
+
+            // Create route via map service
+            let route = client.create_route(map_service::CreateRouteRequest {
+                stops: vec![[coords[0].x, coords[0].y], [coords[1].x, coords[1].y]],
+            })
+                .await
+                .map_err(|e| ErrorResponse::new(format!("map service returned error: {e}")))?;
+
+            // Insert segment
+            sqlx::query("
+                INSERT INTO segment (s1, s2, points, distance, time)
+                VALUES ($1, $2, $3, $4, $5);
+            ")
+                .bind(s1)
+                .bind(s2)
+                .bind(route.way.into_iter().map(|[x, y]| PgPoint { x, y }).collect::<Vec<_>>())
+                .bind(route.distance as i32)
+                .bind(route.duration as i32)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        }
+    }
+
+    // Unlink removed requests from the trip
+    for req_id in &r.delete_stations {
+        sqlx::query("
+            UPDATE request SET trip_id = NULL WHERE id = $1;
+        ")
+            .bind(req_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+    }
+
+    tx.commit().await.map_err(|e| ErrorResponse::new(format!("error committing transaction: {e}")))?;
+
+    Ok(())
 }
