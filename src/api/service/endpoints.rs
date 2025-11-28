@@ -20,8 +20,8 @@ async fn create_route(
     let mut tx = pool.begin().await.map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
     let station_ids: Vec<i32> = sqlx::query_scalar("
-        INSERT INTO station (address, coords)
-        VALUES ($1, $2), ($3, $4)
+        INSERT INTO station (id, address, coords)
+        VALUES (gen_random_uuid(), $1, $2), (gen_random_uuid(), $3, $4)
         RETURNING id;
     ")
         .bind(&from.address)
@@ -687,4 +687,30 @@ pub async fn remove_stations(
     tx.commit().await.map_err(|e| ErrorResponse::new(format!("error committing transaction: {e}")))?;
 
     Ok(())
+}
+
+pub async fn get_station(
+    State(pool): State<sqlx::PgPool>,
+    Json(r): Json<GetStationRequest>
+) -> Result<Json<GetStationResponse>> {
+    let (address, coords): (String, PgPoint) = sqlx::query_as("
+        SELECT address, coords
+        FROM station 
+        WHERE id = $1
+    ")
+        .bind(&r.id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+
+    Ok(Json(GetStationResponse {station: 
+        Station {
+            address, 
+            coords: Coords {
+                lat: coords.x, 
+                lon: coords.y
+                }
+            }
+        }
+    ))
 }

@@ -1,7 +1,7 @@
 pub const SCHEMA: &'static str = r#"
 
 CREATE TABLE IF NOT EXISTS station (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY,
     address TEXT NOT NULL,
     coords POINT NOT NULL
 );

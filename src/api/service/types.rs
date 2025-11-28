@@ -11,6 +11,14 @@ pub struct Station {
     pub address: String,
     pub coords: Coords,
 }
+#[derive(Serialize, Deserialize)]
+pub struct GetStationRequest {
+    pub id: uuid::Uuid,
+}
+
+pub struct GetStationResponse {
+    pub station: Station,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateRouteRequest {
