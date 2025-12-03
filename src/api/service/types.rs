@@ -8,6 +8,7 @@ pub struct Coords {
 
 #[derive(Serialize, Deserialize)]
 pub struct Station {
+    pub id: uuid::Uuid,
     pub address: String,
     pub coords: Coords,
 }

@@ -95,10 +95,12 @@ pub async fn get_cargo_request(
     State(pool): State<sqlx::PgPool>,
     Path(r): Path<GetWaypointsRequest>
 ) -> Result<Json<GetWaypointsResponse>> {
-    let info: (String, PgPoint, String, PgPoint, i32, i32) = sqlx::query_as("
+    let info: (Uuid, String, PgPoint, Uuid, String, PgPoint, i32, i32) = sqlx::query_as("
         SELECT 
+            s_source.id AS source_id,
             s_source.address AS source_address,
             s_source.coords AS source_coords,
+            s_dest.id AS destination_id,
             s_dest.address AS destination_address,
             s_dest.coords AS destination_coords,
             seg.distance,
@@ -114,12 +116,13 @@ pub async fn get_cargo_request(
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
-    let (src_addr, src_coords, dst_addr, dst_coords, distance, time) = info;
+    let (src_id, src_addr, src_coords, dst_id, dst_addr, dst_coords, distance, time) = info;
 
     let response = GetWaypointsResponse { 
         stations: vec![
             Waypoint {
                 station: Station {
+                    id: src_id,
                     address: src_addr,
                     coords: Coords {
                         lat: src_coords.x,
@@ -131,6 +134,7 @@ pub async fn get_cargo_request(
             },
             Waypoint {
                 station: Station {
+                    id: dst_id,
                     address: dst_addr,
                     coords: Coords {
                         lat: dst_coords.x,
@@ -150,10 +154,12 @@ pub async fn get_trip(
     State(pool): State<sqlx::PgPool>,
     Path(r): Path<GetWaypointsRequest>
 ) -> Result<Json<GetWaypointsResponse>> {
-    let segments: Vec<(String, PgPoint, String, PgPoint, i32, i32)> = sqlx::query_as("
+    let segments: Vec<(Uuid, String, PgPoint, Uuid, String, PgPoint, i32, i32)> = sqlx::query_as("
         SELECT 
+            s_source.id AS source_id,
             s_source.address AS source_address,
             s_source.coords AS source_coords,
+            s_dest.id AS destonation_id,
             s_dest.address AS destination_address,
             s_dest.coords AS destination_coords,
             seg.distance,
@@ -175,10 +181,11 @@ pub async fn get_trip(
 
     waypoints.push(Waypoint {
         station: Station {
-            address: segments[0].0.clone(),
+            id: segments[0].0,
+            address: segments[0].1.clone(),
             coords: Coords {
-                lat: segments[0].1.x,
-                lon: segments[0].1.y,
+                lat: segments[0].2.x,
+                lon: segments[0].2.y,
             },
         },
 
@@ -189,15 +196,16 @@ pub async fn get_trip(
     for segment in segments {
         waypoints.push(Waypoint {
             station: Station {
-                address: segment.2.clone(),
+                id: segment.3,
+                address: segment.4.clone(),
                 coords: Coords {
-                    lat: segment.3.x,
-                    lon: segment.3.y,
+                    lat: segment.5.x,
+                    lon: segment.5.y,
                 },
             },
 
-            distance: segment.4 as u64,
-            trip_time: segment.5 as u64,
+            distance: segment.6 as u64,
+            trip_time: segment.7 as u64,
         });
     }
 
@@ -705,6 +713,7 @@ pub async fn get_station(
 
     Ok(Json(GetStationResponse {station: 
         Station {
+            id: r.id,
             address, 
             coords: Coords {
                 lat: coords.x, 
