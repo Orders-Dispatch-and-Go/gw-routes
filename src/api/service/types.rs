@@ -66,26 +66,26 @@ pub struct GetPointsResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct GetPotentialRoutesRequest {
-    #[serde(rename = "cargoRequestRouteId")]
-    pub cargo_request: uuid::Uuid,
+    #[serde(rename = "tripRouteId")]
+    pub trip: uuid::Uuid,
 
-    #[serde(rename = "tripRouteIds")]
-    pub trips: Vec<uuid::Uuid>,
+    #[serde(rename = "cargoRequestRouteIds")]
+    pub cargo_requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct GetPotentialRoutesResponse {
-    #[serde(rename = "tripIds")]
-    pub trips: Vec<uuid::Uuid>,
+    #[serde(rename = "routeIds")]
+    pub requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MergeRoutesRequest {
-  #[serde(rename = "cargoRequestRouteId")]
-  pub cargo_request: uuid::Uuid,
-
   #[serde(rename = "tripRouteId")]
   pub trip: uuid::Uuid,
+
+  #[serde(rename = "cargoRequestRouteId")]
+  pub requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -292,30 +292,30 @@ pub async fn get_potential_routes(
             .collect::<Vec<_>>()
     };
 
-    let request_points = points_to_coords(&fetch_trip_points(&pool, &r.cargo_request).await?);
+    let trip_points = points_to_coords(&fetch_trip_points(&pool, &r.trip).await?);
 
-    let mut trips = Vec::new();
+    let mut requests = Vec::new();
 
-    for trip in &r.trips {
+    for trip in &r.cargo_requests {
         let points = fetch_trip_points(&pool, trip).await?;
-        trips.push((trip.clone(), points_to_coords(&points)));
+        requests.push((trip.clone(), points_to_coords(&points)));
     }
 
-    trips.sort_unstable_by(|(_, points1), (_, points2)| {
-        let d1 = crate::ffi::distance(&points1, &request_points);
-        let d2 = crate::ffi::distance(&points2, &request_points);
+    requests.sort_unstable_by(|(_, points1), (_, points2)| {
+        let d1 = crate::ffi::distance(&points1, &trip_points);
+        let d2 = crate::ffi::distance(&points2, &trip_points);
 
         d1.total_cmp(&d2)
     });
 
     /* TODO: remove trips with distance higher than MAX_DISTANCE */
 
-    let ids = trips
+    let ids = requests
         .into_iter()
         .map(|(id, _)| id)
         .collect::<Vec<_>>();
 
-    Ok(Json(GetPotentialRoutesResponse { trips: ids }))
+    Ok(Json(GetPotentialRoutesResponse { requests: ids }))
 }
 
 async fn get_request_stations(
@@ -383,11 +383,8 @@ pub async fn merge_routes(
 ) -> Result<Json<MergeRoutesResponse>> {
     let mut tx = pool.begin().await.map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
-    // 1. Get request's source and destination stations
-    let (req_src_id, req_src_coords, req_dst_id, req_dst_coords) = get_request_stations(&pool, &r.cargo_request).await?;
-
     // 2. Get all stations in the trip in order
-    let trip_stations: Vec<(i32, PgPoint)> = sqlx::query_as("
+    let mut trip_stations: Vec<(i32, PgPoint)> = sqlx::query_as("
         SELECT s.id, s.coords
         FROM path p
         INNER JOIN station s ON p.station_id = s.id
@@ -410,47 +407,56 @@ pub async fn merge_routes(
         (dx * dx + dy * dy).sqrt()
     };
 
-    // 3. Find closest station in trip to request source
-    let (insert_src_idx, _) = trip_stations
-        .iter()
-        .enumerate()
-        .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
-            distance(coords1, &req_src_coords).total_cmp(&distance(coords2, &req_src_coords))
-        })
-        .ok_or_else(|| ErrorResponse::new("no stations in trip"))?;
+    for request in &r.requests {
+        // 1. Get request's source and destination stations
+        let (req_src_id, req_src_coords, req_dst_id, req_dst_coords) = get_request_stations(&pool, request).await?;
 
-    // 4. Find closest station after source insertion point to request destination
-    let (insert_dst_idx, _) = trip_stations
-        .iter()
-        .enumerate()
-        .skip(insert_src_idx + 1)
-        .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
-            distance(coords1, &req_dst_coords).total_cmp(&distance(coords2, &req_dst_coords))
-        })
-        .ok_or_else(|| ErrorResponse::new("no valid destination insertion point"))?;
+        // 3. Find closest station in trip to request source
+        let (insert_src_idx, _) = trip_stations
+            .iter()
+            .enumerate()
+            .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
+                distance(coords1, &req_src_coords).total_cmp(&distance(coords2, &req_src_coords))
+            })
+            .ok_or_else(|| ErrorResponse::new("no stations in trip"))?;
+    
+        // 4. Find closest station after source insertion point to request destination
+        let (insert_dst_idx, _) = trip_stations
+            .iter()
+            .enumerate()
+            .skip(insert_src_idx + 1)
+            .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
+                distance(coords1, &req_dst_coords).total_cmp(&distance(coords2, &req_dst_coords))
+            })
+            .ok_or_else(|| ErrorResponse::new("no valid destination insertion point"))?;
+            
+        // 5. Build new station order
+        let mut new_stations = Vec::new();
 
-    // 5. Build new station order
-    let mut new_stations = Vec::new();
-    
-    // Add stations before source insertion
-    for i in 0..=insert_src_idx {
-        new_stations.push(trip_stations[i].0);
-    }
-    
-    // Add request source
-    new_stations.push(req_src_id);
-    
-    // Add stations between source and destination insertion points
-    for i in (insert_src_idx + 1)..=insert_dst_idx {
-        new_stations.push(trip_stations[i].0);
-    }
-    
-    // Add request destination
-    new_stations.push(req_dst_id);
-    
-    // Add remaining stations after destination insertion
-    for i in (insert_dst_idx + 1)..trip_stations.len() {
-        new_stations.push(trip_stations[i].0);
+        // Add stations before source insertion
+        for i in 0..=insert_src_idx {
+            new_stations.push(trip_stations[i].clone());
+        }
+
+        // Add request source
+        new_stations.push((req_src_id, req_src_coords));
+
+        // Add stations between source and destination insertion points
+        for i in (insert_src_idx + 1)..=insert_dst_idx {
+            new_stations.push(trip_stations[i].clone());
+        }
+
+        // Add request destination
+        new_stations.push((req_dst_id, req_dst_coords));
+
+        // Add remaining stations after destination insertion
+        for i in (insert_dst_idx + 1)..trip_stations.len() {
+            new_stations.push(trip_stations[i].clone());
+        }
+
+        trip_stations = new_stations;
+
+
     }
 
     // 6. Create new trip
@@ -459,20 +465,20 @@ pub async fn merge_routes(
         VALUES (gen_random_uuid(), $1, $2)
         RETURNING id;
     ")
-        .bind(new_stations[0])
-        .bind(new_stations[new_stations.len() - 1])
+        .bind(trip_stations[0].0)
+        .bind(trip_stations[trip_stations.len() - 1].0)
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
 
     // 7. Insert path entries
-    for (index, &station_id) in new_stations.iter().enumerate() {
+    for (index, station) in trip_stations.iter().enumerate() {
         sqlx::query("
             INSERT INTO path (trip_id, station_id, index)
             VALUES ($1, $2, $3);
         ")
             .bind(&new_trip_id)
-            .bind(station_id)
+            .bind(station.0)
             .bind(index as i32)
             .execute(&mut *tx)
             .await
@@ -480,9 +486,9 @@ pub async fn merge_routes(
     }
 
     // 8. Create segments between consecutive stations
-    for i in 0..new_stations.len() - 1 {
-        let s1 = new_stations[i];
-        let s2 = new_stations[i + 1];
+    for i in 0..trip_stations.len() - 1 {
+        let s1 = trip_stations[i].0;
+        let s2 = trip_stations[i + 1].0;
 
         // Check if segment already exists
         let existing: Option<(i32, i32)> = sqlx::query_as("
@@ -528,14 +534,16 @@ pub async fn merge_routes(
     }
 
     // 9. Update request to reference the new trip
-    sqlx::query("
-        UPDATE request SET trip_id = $1 WHERE id = $2;
-    ")
-        .bind(&new_trip_id)
-        .bind(&r.cargo_request)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+    for request in &r.requests {
+        sqlx::query("
+            UPDATE request SET trip_id = $1 WHERE id = $2;
+        ")
+            .bind(&new_trip_id)
+            .bind(request)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+    }
 
     tx.commit().await.map_err(|e| ErrorResponse::new(format!("error committing transaction: {e}")))?;
 
