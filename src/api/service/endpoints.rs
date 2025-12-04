@@ -460,7 +460,7 @@ pub async fn merge_routes(
         trip_stations.insert(insert_src_idx + 1, (req_src_id, req_src_coords));
     
         // 4. Find closest station after source insertion point to request destination
-        let (insert_dst_idx, _) = trip_stations
+        let (insert_dst_idx, _) = trip_stations[..trip_stations.len() - 1]
             .iter()
             .enumerate()
             .skip(insert_src_idx + 1)
