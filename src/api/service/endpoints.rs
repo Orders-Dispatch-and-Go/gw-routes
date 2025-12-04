@@ -21,16 +21,17 @@ async fn create_route(
 
     let station_ids: Vec<i32> = sqlx::query_scalar("
         INSERT INTO station (id, address, coords)
-        VALUES (gen_random_uuid(), $1, $2), (gen_random_uuid(), $3, $4)
+        VALUES ($1, $2, $3), ($4, $5, $6)
         RETURNING id;
     ")
+        .bind(&from.id)
         .bind(&from.address)
         .bind(PgPoint { x: from.coords.lat, y: from.coords.lon })
+        .bind(&to.id)
         .bind(&to.address)
         .bind(PgPoint { x: to.coords.lat, y: to.coords.lon })
         .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let query = if is_request {
         "INSERT INTO request (id, source, destination)
@@ -46,8 +47,7 @@ async fn create_route(
         .bind(&station_ids[0])
         .bind(&station_ids[1])
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let route = client.create_route(map_service::CreateRouteRequest {
         stops: vec![[from.coords.lat, from.coords.lon], [to.coords.lat, to.coords.lon]],
@@ -65,8 +65,7 @@ async fn create_route(
         .bind(route.distance as i32)
         .bind(route.duration as i32)
         .execute(&mut *tx)    
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     tx.commit().await.map_err(|e| ErrorResponse::new(format!("error commiting transaction: {e}")))?;
 
@@ -113,8 +112,7 @@ pub async fn get_cargo_request(
     ")
         .bind(&r.id)
         .fetch_one(&pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let (src_id, src_addr, src_coords, dst_id, dst_addr, dst_coords, distance, time) = info;
 
@@ -174,8 +172,7 @@ pub async fn get_trip(
     ")
         .bind(&r.id)
         .fetch_all(&pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let mut waypoints = Vec::new();
 
@@ -229,8 +226,7 @@ async fn fetch_request_points(
     ")
         .bind(request_id)
         .fetch_one(pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let points = pg_points
         .into_iter()
@@ -262,8 +258,7 @@ async fn fetch_trip_points(
     ")
         .bind(trip_id)
         .fetch_one(pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     let points = pg_points
         .into_iter()
@@ -271,6 +266,23 @@ async fn fetch_trip_points(
         .collect();
 
     Ok(points)
+}
+
+fn distance(p1: &PgPoint, p2: &PgPoint) -> f64 {
+    const R: f64 = 6371.0;
+        
+    let lat1 = p1.y.to_radians();
+    let lon1 = p1.x.to_radians();
+    let lat2 = p2.y.to_radians();
+    let lon2 = p2.x.to_radians();
+    
+    let dlat = lat2 - lat1;
+    let dlon = lon2 - lon1;
+    
+    let a = (dlat / 2.0).sin().powi(2) + 
+            lat1.cos() * lat2.cos() * (dlon / 2.0).sin().powi(2);
+    
+    R * 2.0 * a.sqrt().atan2((1.0 - a).sqrt())
 }
 
 pub async fn get_trip_points(
@@ -281,41 +293,110 @@ pub async fn get_trip_points(
     Ok(Json(GetPointsResponse { points }))
 }
 
+// pub async fn get_potential_routes(
+//     State(pool): State<sqlx::PgPool>,
+//     Json(r): Json<GetPotentialRoutesRequest>
+// ) -> Result<Json<GetPotentialRoutesResponse>> {
+//     let points_to_coords = |points: &[[f64; 2]]| {
+//         points
+//             .iter()
+//             .map(|p| crate::types::Coord { lat: p[0], lon: p[1] })
+//             .collect::<Vec<_>>()
+//     };
+//
+//     let trip_points = points_to_coords(&fetch_trip_points(&pool, &r.trip).await?);
+//
+//     let mut requests = Vec::new();
+//
+//     for trip in &r.cargo_requests {
+//         let points = fetch_trip_points(&pool, trip).await?;
+//         requests.push((trip.clone(), points_to_coords(&points)));
+//     }
+//
+//     requests.sort_unstable_by(|(_, points1), (_, points2)| {
+//         let d1 = crate::ffi::distance(&points1, &trip_points);
+//         let d2 = crate::ffi::distance(&points2, &trip_points);
+//
+//         d1.total_cmp(&d2)
+//     });
+//
+//     /* TODO: remove trips with distance higher than MAX_DISTANCE */
+//
+//     let ids = requests
+//         .into_iter()
+//         .map(|(id, _)| id)
+//         .collect::<Vec<_>>();
+//
+//     Ok(Json(GetPotentialRoutesResponse { requests: ids }))
+// }
+
 pub async fn get_potential_routes(
     State(pool): State<sqlx::PgPool>,
     Json(r): Json<GetPotentialRoutesRequest>
 ) -> Result<Json<GetPotentialRoutesResponse>> {
-    let points_to_coords = |points: &[[f64; 2]]| {
-        points
+    let mut trip_stations: Vec<PgPoint> = sqlx::query_scalar("
+        SELECT s.coords
+        FROM path p
+        INNER JOIN station s ON p.station_id = s.id
+        WHERE p.trip_id = $1
+        ORDER BY p.index;
+    ")
+        .bind(&r.trip)
+        .fetch_all(&pool)
+        .await?;
+
+    let mut route_ids = Vec::new();
+
+    for id in &r.cargo_requests {
+        let request: (PgPoint, PgPoint) = sqlx::query_as("
+            SELECT 
+                s_source.coords AS source_coords,
+                s_dest.coords AS destination_coords
+            FROM request r
+            INNER JOIN station s_source ON r.source = s_source.id
+            INNER JOIN station s_dest ON r.destination = s_dest.id
+            WHERE r.id = $1;
+        ")
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+
+        let (insert_src_idx, _) = trip_stations
             .iter()
-            .map(|p| crate::types::Coord { lat: p[0], lon: p[1] })
-            .collect::<Vec<_>>()
-    };
+            .enumerate()
+            .min_by(|(_, coords1), (_, coords2)| {
+                distance(coords1, &request.0).total_cmp(&distance(coords2, &request.0))
+            })
+            .unwrap();
 
-    let trip_points = points_to_coords(&fetch_trip_points(&pool, &r.trip).await?);
+        trip_stations.insert(insert_src_idx + 1, request.0);
 
-    let mut requests = Vec::new();
+        let (insert_dst_idx, _) = trip_stations[..trip_stations.len() - 1]
+            .iter()
+            .enumerate()
+            .skip(insert_src_idx + 1)
+            .min_by(|(_, coords1), (_, coords2)| {
+                distance(coords1, &request.1).total_cmp(&distance(coords2, &request.1))
+            })
+            .unwrap();
 
-    for trip in &r.cargo_requests {
-        let points = fetch_trip_points(&pool, trip).await?;
-        requests.push((trip.clone(), points_to_coords(&points)));
+        trip_stations.insert(insert_dst_idx + 1, request.1);
+
+        let res_distance = distance(&trip_stations[insert_src_idx], &trip_stations[insert_src_idx + 1]) +
+                           distance(&trip_stations[insert_src_idx + 1], &trip_stations[insert_src_idx + 2]) +
+                           distance(&trip_stations[insert_dst_idx], &trip_stations[insert_dst_idx + 1]) +
+                           distance(&trip_stations[insert_dst_idx + 1], &trip_stations[insert_dst_idx + 2]);
+
+        trip_stations.remove(insert_dst_idx + 1);
+        trip_stations.remove(insert_src_idx + 1);
+
+        route_ids.push((id, res_distance));
     }
 
-    requests.sort_unstable_by(|(_, points1), (_, points2)| {
-        let d1 = crate::ffi::distance(&points1, &trip_points);
-        let d2 = crate::ffi::distance(&points2, &trip_points);
+    route_ids.sort_by(|a, b| a.1.total_cmp(&b.1));
+    route_ids.retain(|(_, distance)| *distance < 10000.0);
 
-        d1.total_cmp(&d2)
-    });
-
-    /* TODO: remove trips with distance higher than MAX_DISTANCE */
-
-    let ids = requests
-        .into_iter()
-        .map(|(id, _)| id)
-        .collect::<Vec<_>>();
-
-    Ok(Json(GetPotentialRoutesResponse { requests: ids }))
+    Ok(Json(GetPotentialRoutesResponse { requests: route_ids.into_iter().map(|(id, distance)| id.clone()).collect() }))
 }
 
 async fn get_request_stations(
@@ -335,45 +416,9 @@ async fn get_request_stations(
     ")
         .bind(id)
         .fetch_one(pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     Ok(stations)
-}
-
-async fn get_trip_stations(
-    pool: &sqlx::PgPool,
-    id: &Uuid
-) -> Result<Vec<(i32, PgPoint, i32, PgPoint)>> {
-    let pairs: Vec<(i32, PgPoint, i32, PgPoint)> = sqlx::query_as("
-        SELECT 
-            s_src.id AS src_station_id,
-            s_src.coords AS src_coords,
-            s_dst.id AS dst_station_id,
-            s_dst.coords AS dst_coords
-        FROM trip t
-        INNER JOIN station s_src ON t.source = s_src.id
-        INNER JOIN station s_dst ON t.destination = s_dst.id
-        WHERE t.id = $1
-
-        UNION ALL
-
-        SELECT 
-            s_src.id AS src_station_id,
-            s_src.coords AS src_coords,
-            s_dst.id AS dst_station_id,
-            s_dst.coords AS dst_coords
-        FROM request r
-        INNER JOIN station s_src ON r.source = s_src.id
-        INNER JOIN station s_dst ON r.destination = s_dst.id
-        WHERE r.trip_id = $1;
-    ")
-        .bind(id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
-
-    Ok(pairs)
 }
 
 pub async fn merge_routes(
@@ -393,19 +438,11 @@ pub async fn merge_routes(
     ")
         .bind(&r.trip)
         .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     if trip_stations.is_empty() {
         return Err(ErrorResponse::new("trip has no stations"));
     }
-
-    // Helper function to calculate distance
-    let distance = |p1: &PgPoint, p2: &PgPoint| -> f64 {
-        let dx = p1.x - p2.x;
-        let dy = p1.y - p2.y;
-        (dx * dx + dy * dy).sqrt()
-    };
 
     for request in &r.requests {
         // 1. Get request's source and destination stations
@@ -418,7 +455,9 @@ pub async fn merge_routes(
             .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
                 distance(coords1, &req_src_coords).total_cmp(&distance(coords2, &req_src_coords))
             })
-            .ok_or_else(|| ErrorResponse::new("no stations in trip"))?;
+            .unwrap();
+            
+        trip_stations.insert(insert_src_idx + 1, (req_src_id, req_src_coords));
     
         // 4. Find closest station after source insertion point to request destination
         let (insert_dst_idx, _) = trip_stations
@@ -428,35 +467,9 @@ pub async fn merge_routes(
             .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
                 distance(coords1, &req_dst_coords).total_cmp(&distance(coords2, &req_dst_coords))
             })
-            .ok_or_else(|| ErrorResponse::new("no valid destination insertion point"))?;
-            
-        // 5. Build new station order
-        let mut new_stations = Vec::new();
+            .unwrap();
 
-        // Add stations before source insertion
-        for i in 0..=insert_src_idx {
-            new_stations.push(trip_stations[i].clone());
-        }
-
-        // Add request source
-        new_stations.push((req_src_id, req_src_coords));
-
-        // Add stations between source and destination insertion points
-        for i in (insert_src_idx + 1)..=insert_dst_idx {
-            new_stations.push(trip_stations[i].clone());
-        }
-
-        // Add request destination
-        new_stations.push((req_dst_id, req_dst_coords));
-
-        // Add remaining stations after destination insertion
-        for i in (insert_dst_idx + 1)..trip_stations.len() {
-            new_stations.push(trip_stations[i].clone());
-        }
-
-        trip_stations = new_stations;
-
-
+        trip_stations.insert(insert_dst_idx + 1, (req_dst_id, req_dst_coords));
     }
 
     // 6. Create new trip
@@ -468,8 +481,8 @@ pub async fn merge_routes(
         .bind(trip_stations[0].0)
         .bind(trip_stations[trip_stations.len() - 1].0)
         .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
+        
 
     // 7. Insert path entries
     for (index, station) in trip_stations.iter().enumerate() {
@@ -481,8 +494,7 @@ pub async fn merge_routes(
             .bind(station.0)
             .bind(index as i32)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
     }
 
     // 8. Create segments between consecutive stations
@@ -497,8 +509,8 @@ pub async fn merge_routes(
             .bind(s1)
             .bind(s2)
             .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
+            
 
         if existing.is_none() {
             // Get coordinates for both stations
@@ -507,8 +519,7 @@ pub async fn merge_routes(
             ")
                 .bind(&[s1, s2])
                 .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+                .await?;
 
             // Create route via map service
             let route = client.create_route(map_service::CreateRouteRequest {
@@ -528,8 +539,7 @@ pub async fn merge_routes(
                 .bind(route.distance as i32)
                 .bind(route.duration as i32)
                 .execute(&mut *tx)
-                .await
-                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+                .await?;
         }
     }
 
@@ -541,8 +551,7 @@ pub async fn merge_routes(
             .bind(&new_trip_id)
             .bind(request)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
     }
 
     tx.commit().await.map_err(|e| ErrorResponse::new(format!("error committing transaction: {e}")))?;
@@ -572,8 +581,7 @@ pub async fn remove_stations(
             .bind(req_id)
             .bind(&r.trip)
             .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
 
         stations_to_delete.push(src_id);
         stations_to_delete.push(dst_id);
@@ -592,8 +600,7 @@ pub async fn remove_stations(
     ")
         .bind(&r.trip)
         .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     // Remove deleted stations from path
     path.retain(|(station_id, _)| !stations_to_delete.contains(station_id));
@@ -606,8 +613,7 @@ pub async fn remove_stations(
     sqlx::query("DELETE FROM path WHERE trip_id = $1;")
         .bind(&r.trip)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     // Insert new path with updated indices
     for (index, (station_id, _)) in path.iter().enumerate() {
@@ -619,8 +625,7 @@ pub async fn remove_stations(
             .bind(station_id)
             .bind(index as i32)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
     }
 
     // Update trip source and destination
@@ -633,8 +638,7 @@ pub async fn remove_stations(
         .bind(path[path.len() - 1].0)
         .bind(&r.trip)
         .execute(&mut *tx)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     // Create new segments for consecutive stations
     for i in 0..path.len() - 1 {
@@ -648,8 +652,7 @@ pub async fn remove_stations(
             .bind(s1)
             .bind(s2)
             .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
 
         if existing.is_none() {
             // Get coordinates for both stations
@@ -659,8 +662,7 @@ pub async fn remove_stations(
                 .bind(&[s1, s2])
                 .bind(s1)
                 .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+                .await?;
 
             if coords.len() != 2 {
                 return Err(ErrorResponse::new("missing station coordinates"));
@@ -684,8 +686,7 @@ pub async fn remove_stations(
                 .bind(route.distance as i32)
                 .bind(route.duration as i32)
                 .execute(&mut *tx)
-                .await
-                .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+                .await?;
         }
     }
 
@@ -696,8 +697,7 @@ pub async fn remove_stations(
         ")
             .bind(req_id)
             .execute(&mut *tx)
-            .await
-            .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+            .await?;
     }
 
     tx.commit().await.map_err(|e| ErrorResponse::new(format!("error committing transaction: {e}")))?;
@@ -716,8 +716,7 @@ pub async fn get_station(
     ")
         .bind(&r.id)
         .fetch_one(&pool)
-        .await
-        .map_err(|e| ErrorResponse::new(format!("db returned error: {e}")))?;
+        .await?;
 
     Ok(Json(GetStationResponse {station: 
         Station {

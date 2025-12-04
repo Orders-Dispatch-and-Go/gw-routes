@@ -5,6 +5,7 @@ pub mod endpoints;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use reqwest::StatusCode;
+use serde::ser::Error;
 
 use crate::api::map_service;
 use crate::db;
@@ -44,5 +45,11 @@ impl types::ErrorResponse {
         Self {
             message: message.into(),
         }
+    }
+}
+
+impl From<sqlx::Error> for types::ErrorResponse {
+    fn from(value: sqlx::Error) -> Self {
+        types::ErrorResponse::new(format!("db returned error: {value}"))
     }
 }
