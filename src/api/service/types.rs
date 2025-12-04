@@ -8,8 +8,19 @@ pub struct Coords {
 
 #[derive(Serialize, Deserialize)]
 pub struct Station {
+    pub id: uuid::Uuid,
     pub address: String,
     pub coords: Coords,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetStationRequest {
+    pub id: uuid::Uuid,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GetStationResponse {
+    pub station: Station,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,10 +45,10 @@ pub struct GetWaypointsRequest {
 #[derive(Serialize, Deserialize)]
 pub struct Waypoint {
     pub station: Station,
-    pub distance: f64,
+    pub distance: u64,
 
     #[serde(rename = "tripTime")]
-    pub trip_time: f64,
+    pub trip_time: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -57,32 +68,32 @@ pub struct GetPointsResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct GetPotentialRoutesRequest {
-    #[serde(rename = "cargoRequestRouteId")]
-    pub cargo_request: uuid::Uuid,
+    #[serde(rename = "tripRouteId")]
+    pub trip: uuid::Uuid,
 
-    #[serde(rename = "tripRouteIds")]
-    pub trips: Vec<uuid::Uuid>,
+    #[serde(rename = "cargoRequestRouteIds")]
+    pub cargo_requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct GetPotentialRoutesResponse {
-    #[serde(rename = "tripIds")]
-    pub trips: Vec<uuid::Uuid>,
+    #[serde(rename = "routeIds")]
+    pub requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MergeRoutesRequest {
-  #[serde(rename = "cargoRequestRouteId")]
-  pub cargo_request: uuid::Uuid,
+    #[serde(rename = "tripRouteId")]
+    pub trip: uuid::Uuid,
 
-  #[serde(rename = "tripRouteId")]
-  pub trip: uuid::Uuid,
+    #[serde(rename = "cargoRequestRouteId")]
+    pub requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct MergeRoutesResponse {
     #[serde(rename = "routeId")]
-    route: uuid::Uuid,
+    pub route: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize)]

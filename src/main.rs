@@ -1,4 +1,3 @@
-use gw_routes::api::map_service::types::CreateRouteRequest;
 use gw_routes::config::{Config, REQUIRED_VARIABLES};
 use gw_routes::db::Database;
 use gw_routes::schema::SCHEMA;
