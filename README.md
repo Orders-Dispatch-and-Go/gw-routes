@@ -24,4 +24,4 @@ docker build .
 
 ## API
 
-[Service API (Wiki)](https://github.com/Orders-Dispatch-and-Go/gruzowiki-transportation-go/blob/main/back-bd_api-v1.md)
+[Service API](https://github.com/Orders-Dispatch-and-Go/gruzowiki-transportation-go/blob/main/back-bd_api-v1.md)
