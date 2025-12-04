@@ -719,12 +719,12 @@ pub async fn remove_stations(
 
 pub async fn get_station(
     State(pool): State<sqlx::PgPool>,
-    Json(r): Json<GetStationRequest>,
+    Path(r): Path<GetStationRequest>,
 ) -> Result<Json<GetStationResponse>> {
     let (address, coords): (String, PgPoint) = sqlx::query_as(
         "SELECT address, coords
         FROM station 
-        WHERE id = $1",
+        WHERE id = $1;",
     )
     .bind(&r.id)
     .fetch_one(&pool)

@@ -18,6 +18,7 @@ pub struct GetStationRequest {
     pub id: uuid::Uuid,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct GetStationResponse {
     pub station: Station,
 }
