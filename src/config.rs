@@ -18,9 +18,9 @@ pub struct Config {
 
 impl Config {
     pub fn env() -> anyhow::Result<Self> {
-        let postgres_url = env("PG_URL")?;
-        let map_service_addr = env("MAP_SERVICE_ADDR")?;
-        let listen_port = env("LISTEN_PORT")
+        let postgres_url = env(ENV_POSTGRES_URL)?;
+        let map_service_addr = env(ENV_MAP_SERVICE_ADDR)?;
+        let listen_port = env(ENV_LISTEN_PORT)
             .and_then(|v| v.parse().map_err(Into::into))
             .unwrap_or(DEFAULT_LISTEN_PORT);
 

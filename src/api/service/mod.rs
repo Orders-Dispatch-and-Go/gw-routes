@@ -1,11 +1,10 @@
+pub mod endpoints;
 pub mod router;
 pub mod types;
-pub mod endpoints;
 
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::response::{IntoResponse, Response};
 use reqwest::StatusCode;
-use serde::ser::Error;
 
 use crate::api::map_service;
 use crate::db;

@@ -82,11 +82,11 @@ pub struct GetPotentialRoutesResponse {
 
 #[derive(Serialize, Deserialize)]
 pub struct MergeRoutesRequest {
-  #[serde(rename = "tripRouteId")]
-  pub trip: uuid::Uuid,
+    #[serde(rename = "tripRouteId")]
+    pub trip: uuid::Uuid,
 
-  #[serde(rename = "cargoRequestRouteId")]
-  pub requests: Vec<uuid::Uuid>,
+    #[serde(rename = "cargoRequestRouteId")]
+    pub requests: Vec<uuid::Uuid>,
 }
 
 #[derive(Serialize, Deserialize)]

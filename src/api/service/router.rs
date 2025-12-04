@@ -8,7 +8,10 @@ pub fn router(state: super::State) -> axum::Router {
         .route("/routes/trips", post(create_trip))
         .route("/routes/cargo_requests/{id}", get(get_cargo_request))
         .route("/routes/trips/{id}", get(get_trip))
-        .route("/routes/cargo_requests/{id}/points", get(get_cargo_request_points))
+        .route(
+            "/routes/cargo_requests/{id}/points",
+            get(get_cargo_request_points),
+        )
         .route("/routes/trips/{id}/points", get(get_trip_points))
         .route("/routes/tips/potential", post(get_potential_routes))
         .route("/routes/trips/merge", post(merge_routes))
