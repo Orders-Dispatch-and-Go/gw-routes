@@ -20,7 +20,7 @@ async fn create_route(
         .await
         .map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
-    let station_ids: Vec<i32> = sqlx::query_scalar(
+    let station_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
         "INSERT INTO station (id, address, coords)
         VALUES ($1, $2, $3), ($4, $5, $6)
         RETURNING id;",
@@ -419,7 +419,7 @@ pub async fn get_potential_routes(
 async fn get_request_stations(
     pool: &sqlx::PgPool,
     id: &Uuid,
-) -> Result<(i32, PgPoint, i32, PgPoint)> {
+) -> Result<(uuid::Uuid, PgPoint, uuid::Uuid, PgPoint)> {
     let stations = sqlx::query_as(
         "SELECT 
             s_src.id AS src_station_id,
@@ -448,7 +448,7 @@ pub async fn merge_routes(
         .await
         .map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
-    let mut trip_stations: Vec<(i32, PgPoint)> = sqlx::query_as(
+    let mut trip_stations: Vec<(uuid::Uuid, PgPoint)> = sqlx::query_as(
         "SELECT s.id, s.coords
         FROM path p
         INNER JOIN station s ON p.station_id = s.id
@@ -584,7 +584,7 @@ pub async fn remove_stations(
 
     let mut stations_to_delete = Vec::new();
     for req_id in &r.delete_stations {
-        let (src_id, _, dst_id, _): (i32, PgPoint, i32, PgPoint) = sqlx::query_as(
+        let (src_id, _, dst_id, _): (uuid::Uuid, PgPoint, uuid::Uuid, PgPoint) = sqlx::query_as(
             "SELECT 
                 s_src.id, s_src.coords,
                 s_dst.id, s_dst.coords
@@ -606,7 +606,7 @@ pub async fn remove_stations(
         return Err(ErrorResponse::new("no stations to delete"));
     }
 
-    let mut path: Vec<(i32, i32)> = sqlx::query_as(
+    let mut path: Vec<(uuid::Uuid, i32)> = sqlx::query_as(
         "SELECT station_id, index
         FROM path
         WHERE trip_id = $1
