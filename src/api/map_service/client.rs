@@ -28,7 +28,7 @@ impl Client {
             .join("/api/create_route")
             .map_err(|e| anyhow!("error joining url: {e}"))?;
 
-        let response = self.inner.get(url).json(&r).send().await?.json().await?;
+        let response = self.inner.post(url).json(&r).send().await?.json().await?;
 
         Ok(response)
     }
