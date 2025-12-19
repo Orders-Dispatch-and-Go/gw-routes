@@ -281,7 +281,7 @@ pub async fn get_cargo_request_points(
 
 async fn fetch_trip_points(pool: &sqlx::PgPool, trip_id: &Uuid) -> Result<Vec<[f64; 2]>> {
     let pg_points: Vec<PgPoint> = sqlx::query_scalar(
-        "SELECT array_agg(ARRAY[point[0], point[1]] ORDER BY p1.index, idx) AS flat_points
+        "SELECT array_agg(point ORDER BY p1.index, idx) AS flat_points
         FROM path p1
         JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
         LEFT JOIN segment seg ON seg.s1 = p1.station_id AND seg.s2 = p2.station_id
