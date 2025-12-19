@@ -13,7 +13,7 @@ pub fn router(state: super::State) -> axum::Router {
             get(get_cargo_request_points),
         )
         .route("/routes/trips/{id}/points", get(get_trip_points))
-        .route("/routes/tips/potential", post(get_potential_routes))
+        .route("/routes/trips/potential", post(get_potential_routes))
         .route("/routes/trips/merge", post(merge_routes))
         .route("/routes/trips/cargo_request/remove", post(remove_stations))
         .route("/stations/{id}", get(get_station))
