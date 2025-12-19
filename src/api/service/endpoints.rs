@@ -113,7 +113,7 @@ pub async fn get_cargo_request(
     State(pool): State<sqlx::PgPool>,
     Path(r): Path<GetWaypointsRequest>,
 ) -> Result<Json<GetWaypointsResponse>> {
-    let info: (Uuid, String, PgPoint, Uuid, String, PgPoint, i32, i32) = sqlx::query_as(
+    let info: Option<(Uuid, String, PgPoint, Uuid, String, PgPoint, i32, i32)> = sqlx::query_as(
         "SELECT 
             s_source.id AS source_id,
             s_source.address AS source_address,
@@ -130,8 +130,12 @@ pub async fn get_cargo_request(
         WHERE r.id = $1;",
     )
     .bind(&r.id)
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await?;
+
+    let Some(info) = info else {
+        return Err(ErrorResponse::new(format!("cannot find cargo request with id {}", r.id)));
+    };
 
     let (src_id, src_addr, src_coords, dst_id, dst_addr, dst_coords, distance, time) = info;
 
@@ -192,6 +196,10 @@ pub async fn get_trip(
     .bind(&r.id)
     .fetch_all(&pool)
     .await?;
+
+    if segments.is_empty() {
+        return Err(ErrorResponse::new(format!("cannot find trip with id {}", r.id)));
+    }
 
     let mut waypoints = Vec::new();
 
@@ -254,6 +262,11 @@ pub async fn get_cargo_request_points(
     Path(r): Path<GetPointsRequest>,
 ) -> Result<Json<GetPointsResponse>> {
     let points = fetch_request_points(&pool, &r.id).await?;
+
+    if points.is_empty() {
+        return Err(ErrorResponse::new(format!("cannot find cargo request points for id {}", r.id)));
+    }
+
     Ok(Json(GetPointsResponse { points }))
 }
 
@@ -296,6 +309,11 @@ pub async fn get_trip_points(
     Path(r): Path<GetPointsRequest>,
 ) -> Result<Json<GetPointsResponse>> {
     let points = fetch_trip_points(&pool, &r.id).await?;
+
+    if points.is_empty() {
+        return Err(ErrorResponse::new(format!("cannot find trip points for id {}", r.id)));
+    }
+
     Ok(Json(GetPointsResponse { points }))
 }
 
