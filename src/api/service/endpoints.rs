@@ -84,6 +84,15 @@ async fn create_route(
     .execute(&mut *tx)
     .await?;
 
+    if !is_request {
+        sqlx::query("INSERT INTO path (trip_id, station_id, index) VALUES ($1, $2, 0), ($1, $3, 1);")
+            .bind(id)
+            .bind(station_ids[0])
+            .bind(station_ids[1])
+            .execute(&mut *tx)
+            .await?;
+    }
+
     tx.commit()
         .await
         .map_err(|e| ErrorResponse::new(format!("error commiting transaction: {e}")))?;
