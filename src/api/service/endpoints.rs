@@ -405,23 +405,27 @@ pub async fn get_potential_routes(
             )));
         };
 
-        let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
-            .iter()
-            .enumerate()
-            .min_by(|(_, coords1), (_, coords2)| {
-                distance(coords1, &request.0).total_cmp(&distance(coords2, &request.0))
+        let (insert_src_idx, _) = trip_stations
+            .windows(2)
+            .map(|stations| {
+                distance(&stations[0], &request.0) + distance(&request.0, &stations[1])
+                    - distance(&stations[0], &stations[1])
             })
+            .enumerate()
+            .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2))
             .unwrap();
 
         trip_stations.insert(insert_src_idx + 1, request.0);
 
-        let (insert_dst_idx, _) = trip_stations[..trip_stations.len() - 1]
-            .iter()
+        let (insert_dst_idx, _) = trip_stations
+            .windows(2)
+            .map(|stations| {
+                distance(&stations[0], &request.1) + distance(&request.1, &stations[1])
+                    - distance(&stations[0], &stations[1])
+            })
             .enumerate()
             .skip(insert_src_idx + 1)
-            .min_by(|(_, coords1), (_, coords2)| {
-                distance(coords1, &request.1).total_cmp(&distance(coords2, &request.1))
-            })
+            .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2))
             .unwrap();
 
         trip_stations.insert(insert_dst_idx + 1, request.1);
@@ -432,11 +436,17 @@ pub async fn get_potential_routes(
         ) + distance(
             &trip_stations[insert_src_idx + 1],
             &trip_stations[insert_src_idx + 2],
+        ) - distance(
+            &trip_stations[insert_src_idx],
+            &trip_stations[insert_src_idx + 2],
         ) + distance(
             &trip_stations[insert_dst_idx],
             &trip_stations[insert_dst_idx + 1],
         ) + distance(
             &trip_stations[insert_dst_idx + 1],
+            &trip_stations[insert_dst_idx + 2],
+        ) - distance(
+            &trip_stations[insert_dst_idx],
             &trip_stations[insert_dst_idx + 2],
         );
 
@@ -514,23 +524,29 @@ pub async fn merge_routes(
             )));
         };
 
-        let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
-            .iter()
-            .enumerate()
-            .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
-                distance(coords1, &req_src_coords).total_cmp(&distance(coords2, &req_src_coords))
+        let (insert_src_idx, _) = trip_stations
+            .windows(2)
+            .map(|stations| {
+                distance(&stations[0].1, &req_src_coords)
+                    + distance(&req_src_coords, &stations[1].1)
+                    - distance(&stations[0].1, &stations[1].1)
             })
+            .enumerate()
+            .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2))
             .unwrap();
 
         trip_stations.insert(insert_src_idx + 1, (req_src_id, req_src_coords));
 
-        let (insert_dst_idx, _) = trip_stations[..trip_stations.len() - 1]
-            .iter()
+        let (insert_dst_idx, _) = trip_stations
+            .windows(2)
+            .map(|stations| {
+                distance(&stations[0].1, &req_dst_coords)
+                    + distance(&req_dst_coords, &stations[1].1)
+                    - distance(&stations[0].1, &stations[1].1)
+            })
             .enumerate()
             .skip(insert_src_idx + 1)
-            .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
-                distance(coords1, &req_dst_coords).total_cmp(&distance(coords2, &req_dst_coords))
-            })
+            .min_by(|(_, d1), (_, d2)| d1.total_cmp(d2))
             .unwrap();
 
         trip_stations.insert(insert_dst_idx + 1, (req_dst_id, req_dst_coords));
