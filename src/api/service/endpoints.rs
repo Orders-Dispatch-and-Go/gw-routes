@@ -21,9 +21,11 @@ async fn create_route(
         .map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
     for station in [from, to] {
-        let station_id: Option<uuid::Uuid> = sqlx::query_scalar("
+        let station_id: Option<uuid::Uuid> = sqlx::query_scalar(
+            "
             SELECT id FROM station WHERE id = $1;
-        ")
+        ",
+        )
         .bind(&station.id)
         .fetch_optional(&mut *tx)
         .await?;
@@ -89,12 +91,14 @@ async fn create_route(
     .await?;
 
     if !is_request {
-        sqlx::query("INSERT INTO path (trip_id, station_id, index) VALUES ($1, $2, 0), ($1, $3, 1);")
-            .bind(id)
-            .bind(from.id)
-            .bind(to.id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO path (trip_id, station_id, index) VALUES ($1, $2, 0), ($1, $3, 1);",
+        )
+        .bind(id)
+        .bind(from.id)
+        .bind(to.id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit()
@@ -147,7 +151,10 @@ pub async fn get_cargo_request(
     .await?;
 
     let Some(info) = info else {
-        return Err(ErrorResponse::new(format!("cannot find cargo request with id {}", r.id)));
+        return Err(ErrorResponse::new(format!(
+            "cannot find cargo request with id {}",
+            r.id
+        )));
     };
 
     let (src_id, src_addr, src_coords, dst_id, dst_addr, dst_coords, distance, time) = info;
@@ -211,7 +218,10 @@ pub async fn get_trip(
     .await?;
 
     if segments.is_empty() {
-        return Err(ErrorResponse::new(format!("cannot find trip with id {}", r.id)));
+        return Err(ErrorResponse::new(format!(
+            "cannot find trip with id {}",
+            r.id
+        )));
     }
 
     let mut waypoints = Vec::new();
@@ -252,7 +262,7 @@ pub async fn get_trip(
 }
 
 async fn fetch_request_points(pool: &sqlx::PgPool, request_id: &Uuid) -> Result<Vec<[f64; 2]>> {
-    let pg_points: Vec<PgPoint> = sqlx::query_scalar(
+    let pg_points: Option<Vec<PgPoint>> = sqlx::query_scalar(
         "SELECT     
             seg.points
         FROM request r        
@@ -262,8 +272,15 @@ async fn fetch_request_points(pool: &sqlx::PgPool, request_id: &Uuid) -> Result<
         WHERE r.id = $1;",
     )
     .bind(request_id)
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
+
+    let Some(pg_points) = pg_points else {
+        return Err(ErrorResponse::new(format!(
+            "there are no points for request id {}",
+            request_id
+        )));
+    };
 
     let points = pg_points.into_iter().map(|p| [p.x, p.y]).collect();
 
@@ -277,14 +294,17 @@ pub async fn get_cargo_request_points(
     let points = fetch_request_points(&pool, &r.id).await?;
 
     if points.is_empty() {
-        return Err(ErrorResponse::new(format!("cannot find cargo request points for id {}", r.id)));
+        return Err(ErrorResponse::new(format!(
+            "cannot find cargo request points for id {}",
+            r.id
+        )));
     }
 
     Ok(Json(GetPointsResponse { points }))
 }
 
 async fn fetch_trip_points(pool: &sqlx::PgPool, trip_id: &Uuid) -> Result<Vec<[f64; 2]>> {
-    let pg_points: Vec<PgPoint> = sqlx::query_scalar(
+    let pg_points: Option<Vec<PgPoint>> = sqlx::query_scalar(
         "SELECT array_agg(point ORDER BY p1.index, idx) AS flat_points
         FROM path p1
         JOIN path p2 ON p1.trip_id = p2.trip_id AND p2.index = p1.index + 1
@@ -295,6 +315,13 @@ async fn fetch_trip_points(pool: &sqlx::PgPool, trip_id: &Uuid) -> Result<Vec<[f
     .bind(trip_id)
     .fetch_one(pool)
     .await?;
+
+    let Some(pg_points) = pg_points else {
+        return Err(ErrorResponse::new(format!(
+            "there are no points for trip id {}",
+            trip_id
+        )));
+    };
 
     let points = pg_points.into_iter().map(|p| [p.x, p.y]).collect();
 
@@ -324,48 +351,14 @@ pub async fn get_trip_points(
     let points = fetch_trip_points(&pool, &r.id).await?;
 
     if points.is_empty() {
-        return Err(ErrorResponse::new(format!("cannot find trip points for id {}", r.id)));
+        return Err(ErrorResponse::new(format!(
+            "cannot find trip points for id {}",
+            r.id
+        )));
     }
 
     Ok(Json(GetPointsResponse { points }))
 }
-
-// pub async fn get_potential_routes(
-//     State(pool): State<sqlx::PgPool>,
-//     Json(r): Json<GetPotentialRoutesRequest>
-// ) -> Result<Json<GetPotentialRoutesResponse>> {
-//     let points_to_coords = |points: &[[f64; 2]]| {
-//         points
-//             .iter()
-//             .map(|p| crate::types::Coord { lat: p[0], lon: p[1] })
-//             .collect::<Vec<_>>()
-//     };
-//
-//     let trip_points = points_to_coords(&fetch_trip_points(&pool, &r.trip).await?);
-//
-//     let mut requests = Vec::new();
-//
-//     for trip in &r.cargo_requests {
-//         let points = fetch_trip_points(&pool, trip).await?;
-//         requests.push((trip.clone(), points_to_coords(&points)));
-//     }
-//
-//     requests.sort_unstable_by(|(_, points1), (_, points2)| {
-//         let d1 = crate::ffi::distance(&points1, &trip_points);
-//         let d2 = crate::ffi::distance(&points2, &trip_points);
-//
-//         d1.total_cmp(&d2)
-//     });
-//
-//     /* TODO: remove trips with distance higher than MAX_DISTANCE */
-//
-//     let ids = requests
-//         .into_iter()
-//         .map(|(id, _)| id)
-//         .collect::<Vec<_>>();
-//
-//     Ok(Json(GetPotentialRoutesResponse { requests: ids }))
-// }
 
 pub async fn get_potential_routes(
     State(pool): State<sqlx::PgPool>,
@@ -382,10 +375,17 @@ pub async fn get_potential_routes(
     .fetch_all(&pool)
     .await?;
 
+    if trip_stations.is_empty() {
+        return Err(ErrorResponse::new(format!(
+            "cannot find trip with id {}",
+            r.trip
+        )));
+    }
+
     let mut route_ids = Vec::new();
 
     for id in &r.cargo_requests {
-        let request: (PgPoint, PgPoint) = sqlx::query_as(
+        let request: Option<(PgPoint, PgPoint)> = sqlx::query_as(
             "SELECT 
                 s_source.coords AS source_coords,
                 s_dest.coords AS destination_coords
@@ -395,8 +395,15 @@ pub async fn get_potential_routes(
             WHERE r.id = $1;",
         )
         .bind(id)
-        .fetch_one(&pool)
+        .fetch_optional(&pool)
         .await?;
+
+        let Some(request) = request else {
+            return Err(ErrorResponse::new(format!(
+                "cannot find cargo request with id {}",
+                id
+            )));
+        };
 
         let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
             .iter()
@@ -450,7 +457,7 @@ pub async fn get_potential_routes(
 async fn get_request_stations(
     pool: &sqlx::PgPool,
     id: &Uuid,
-) -> Result<(uuid::Uuid, PgPoint, uuid::Uuid, PgPoint)> {
+) -> Result<Option<(uuid::Uuid, PgPoint, uuid::Uuid, PgPoint)>> {
     let stations = sqlx::query_as(
         "SELECT 
             s_src.id AS src_station_id,
@@ -463,7 +470,7 @@ async fn get_request_stations(
         WHERE r.id = $1;",
     )
     .bind(id)
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
 
     Ok(stations)
@@ -491,12 +498,21 @@ pub async fn merge_routes(
     .await?;
 
     if trip_stations.is_empty() {
-        return Err(ErrorResponse::new("trip has no stations"));
+        return Err(ErrorResponse::new(format!(
+            "cannot find trip with id {}",
+            r.trip
+        )));
     }
 
     for request in &r.requests {
-        let (req_src_id, req_src_coords, req_dst_id, req_dst_coords) =
-            get_request_stations(&pool, request).await?;
+        let Some((req_src_id, req_src_coords, req_dst_id, req_dst_coords)) =
+            get_request_stations(&pool, request).await?
+        else {
+            return Err(ErrorResponse::new(format!(
+                "cannot find cargo request with id {}",
+                request
+            )));
+        };
 
         let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
             .iter()
