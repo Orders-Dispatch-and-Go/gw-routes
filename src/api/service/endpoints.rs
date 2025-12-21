@@ -394,7 +394,7 @@ pub async fn get_potential_routes(
         .fetch_one(&pool)
         .await?;
 
-        let (insert_src_idx, _) = trip_stations
+        let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
             .iter()
             .enumerate()
             .min_by(|(_, coords1), (_, coords2)| {
@@ -494,7 +494,7 @@ pub async fn merge_routes(
         let (req_src_id, req_src_coords, req_dst_id, req_dst_coords) =
             get_request_stations(&pool, request).await?;
 
-        let (insert_src_idx, _) = trip_stations
+        let (insert_src_idx, _) = trip_stations[..trip_stations.len() - 1]
             .iter()
             .enumerate()
             .min_by(|(_, (_, coords1)), (_, (_, coords2))| {
