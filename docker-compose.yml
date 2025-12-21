@@ -1,0 +1,53 @@
+services:
+  routes_postgres:
+    image: 'postgres:16.4'
+    container_name: "routes-postgres"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - routes_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      gruzowiki-network:
+        aliases:
+          - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  routes_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: routes_app
+    environment:
+      PG_URL: ${PG_URL}
+      RUST_LOG: "INFO"
+      LISTEN_PORT: "3333"
+      MAP_SERVICE_ADDR: ${MAP_SERVICE_ADDR}
+    ports:
+      - "3333:3333"
+    depends_on:
+      routes_postgres:
+        condition: service_healthy
+    networks:
+      - gruzowiki-network
+    restart: unless-stopped
+
+volumes:
+  routes_data:
+
+networks:
+  gruzowiki-network:
+    name: "gruzowiki-network"
+    driver: bridge
+    external: true
