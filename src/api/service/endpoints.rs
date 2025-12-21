@@ -20,25 +20,29 @@ async fn create_route(
         .await
         .map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
-    let station_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
-        "INSERT INTO station (id, address, coords)
-        VALUES ($1, $2, $3), ($4, $5, $6)
-        RETURNING id;",
-    )
-    .bind(&from.id)
-    .bind(&from.address)
-    .bind(PgPoint {
-        x: from.coords.lat,
-        y: from.coords.lon,
-    })
-    .bind(&to.id)
-    .bind(&to.address)
-    .bind(PgPoint {
-        x: to.coords.lat,
-        y: to.coords.lon,
-    })
-    .fetch_all(&mut *tx)
-    .await?;
+    for station in [from, to] {
+        let station_id: Option<uuid::Uuid> = sqlx::query_scalar("
+            SELECT id FROM station WHERE id = $1;
+        ")
+        .bind(&station.id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if station_id.is_none() {
+            sqlx::query(
+                "INSERT INTO station (id, address, coords)
+                VALUES ($1, $2, $3);",
+            )
+            .bind(station.id)
+            .bind(&station.address)
+            .bind(PgPoint {
+                x: station.coords.lat,
+                y: station.coords.lon,
+            })
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
 
     let query = if is_request {
         "INSERT INTO request (id, source, destination)
@@ -51,8 +55,8 @@ async fn create_route(
     };
 
     let id: Uuid = sqlx::query_scalar(query)
-        .bind(&station_ids[0])
-        .bind(&station_ids[1])
+        .bind(from.id)
+        .bind(to.id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -70,8 +74,8 @@ async fn create_route(
         "INSERT INTO segment (s1, s2, points, distance, time)
         VALUES ($1, $2, $3, $4, $5);",
     )
-    .bind(station_ids[0])
-    .bind(station_ids[1])
+    .bind(from.id)
+    .bind(to.id)
     .bind(
         route
             .way
@@ -87,8 +91,8 @@ async fn create_route(
     if !is_request {
         sqlx::query("INSERT INTO path (trip_id, station_id, index) VALUES ($1, $2, 0), ($1, $3, 1);")
             .bind(id)
-            .bind(station_ids[0])
-            .bind(station_ids[1])
+            .bind(from.id)
+            .bind(to.id)
             .execute(&mut *tx)
             .await?;
     }
