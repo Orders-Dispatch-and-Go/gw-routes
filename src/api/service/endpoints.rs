@@ -21,11 +21,7 @@ async fn create_route(
         .map_err(|e| ErrorResponse::new(format!("error starting transaction: {e}")))?;
 
     for station in [from, to] {
-        let station_id: Option<uuid::Uuid> = sqlx::query_scalar(
-            "
-            SELECT id FROM station WHERE id = $1;
-        ",
-        )
+        let station_id: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM station WHERE id = $1;")
         .bind(&station.id)
         .fetch_optional(&mut *tx)
         .await?;
@@ -62,33 +58,41 @@ async fn create_route(
         .fetch_one(&mut *tx)
         .await?;
 
-    let route = client
-        .create_route(map_service::CreateRouteRequest {
-            stops: vec![
-                [from.coords.lat, from.coords.lon],
-                [to.coords.lat, to.coords.lon],
-            ],
-        })
-        .await
-        .map_err(|e| ErrorResponse::new(format!("map service returned error: {e}")))?;
+    if sqlx::query("SELECT 1 FROM segment WHERE s1 = $1 and s2 = $2")
+        .bind(&from.id)
+        .bind(&to.id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_none() 
+    {
+        let route = client
+            .create_route(map_service::CreateRouteRequest {
+                stops: vec![
+                    [from.coords.lat, from.coords.lon],
+                    [to.coords.lat, to.coords.lon],
+                ],
+            })
+            .await
+            .map_err(|e| ErrorResponse::new(format!("map service returned error: {e}")))?;
 
-    sqlx::query(
-        "INSERT INTO segment (s1, s2, points, distance, time)
-        VALUES ($1, $2, $3, $4, $5);",
-    )
-    .bind(from.id)
-    .bind(to.id)
-    .bind(
-        route
-            .way
-            .into_iter()
-            .map(|[x, y]| PgPoint { x, y })
-            .collect::<Vec<_>>(),
-    )
-    .bind(route.distance as i32)
-    .bind(route.duration as i32)
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query(
+            "INSERT INTO segment (s1, s2, points, distance, time)
+            VALUES ($1, $2, $3, $4, $5);",
+        )
+        .bind(from.id)
+        .bind(to.id)
+        .bind(
+            route
+                .way
+                .into_iter()
+                .map(|[x, y]| PgPoint { x, y })
+                .collect::<Vec<_>>(),
+        )
+        .bind(route.distance as i32)
+        .bind(route.duration as i32)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     if !is_request {
         sqlx::query(
