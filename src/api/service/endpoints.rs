@@ -591,15 +591,19 @@ pub async fn merge_routes(
                 .await?;
 
         if existing.is_none() {
-            let coords: Vec<PgPoint> =
-                sqlx::query_scalar("SELECT coords FROM station WHERE id = ANY($1);")
-                    .bind(&[s1, s2])
-                    .fetch_all(&mut *tx)
-                    .await?;
+            let s1_coords: PgPoint = sqlx::query_scalar("SELECT coords FROM station WHERE id = $1;")
+                .bind(s1)
+                .fetch_one(&mut *tx)
+                .await?;
+
+            let s2_coords: PgPoint = sqlx::query_scalar("SELECT coords FROM station WHERE id = $1;")
+                .bind(s2)
+                .fetch_one(&mut *tx)
+                .await?;
 
             let route = client
                 .create_route(map_service::CreateRouteRequest {
-                    stops: vec![[coords[0].x, coords[0].y], [coords[1].x, coords[1].y]],
+                    stops: vec![[s1_coords.x, s1_coords.y], [s2_coords.x, s2_coords.y]],
                 })
                 .await
                 .map_err(|e| ErrorResponse::new(format!("map service returned error: {e}")))?;
