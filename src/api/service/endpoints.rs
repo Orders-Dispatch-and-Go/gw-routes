@@ -333,7 +333,7 @@ async fn fetch_trip_points(pool: &sqlx::PgPool, trip_id: &Uuid) -> Result<Vec<[f
 }
 
 fn distance(p1: &PgPoint, p2: &PgPoint) -> f64 {
-    const R: f64 = 6371.0;
+    const R: f64 = 6371000.0;
 
     let lat1 = p1.y.to_radians();
     let lon1 = p1.x.to_radians();
